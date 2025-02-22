@@ -24,7 +24,6 @@ player_pos = [1.5, 0.5, 1.5]  # Starting position (x, y, z)
 player_angle_x = 0  # Yaw (left-right)
 player_angle_y = 0  # Pitch (up-down)
 step_size = 1.0  # One grid square per move
-turn_angle = 90  # Turn 90 degrees with A/D
 
 # Define a 10x10 maze (1 = wall, 0 = path)
 maze = [
@@ -40,6 +39,10 @@ maze = [
     [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
 ]
 goal = [4.5, 0, 4.5]  # Center of the maze
+
+# Timer setup
+time_limit = 60  # 60 seconds
+start_time = pygame.time.get_ticks() / 1000  # Current time in seconds
 
 # Texture IDs
 wall_texture = None
@@ -132,7 +135,7 @@ def draw_goal(x, y, z):
 
 # Check collision with walls
 def check_collision(x, z):
-    grid_x = int(round(x))  # Round to nearest grid square
+    grid_x = int(round(x))
     grid_z = int(round(z))
     if grid_x < 0 or grid_x >= len(maze) or grid_z < 0 or grid_z >= len(maze[0]):
         return True
@@ -155,12 +158,13 @@ while running:
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
             running = False
 
-    # Mouse look (pitch only)
+    # Mouse rotation (yaw and pitch)
     mouse_dx, mouse_dy = pygame.mouse.get_rel()
-    player_angle_y -= mouse_dy * 0.1
-    player_angle_y = max(-90, min(90, player_angle_y))
+    player_angle_x += mouse_dx * 0.1  # Yaw (left-right)
+    player_angle_y -= mouse_dy * 0.1  # Pitch (up-down)
+    player_angle_y = max(-90, min(90, player_angle_y))  # Limit pitch
 
-    # Handle movement and turning (one step at a time)
+    # Handle movement (one step at a time)
     keys = pygame.key.get_pressed()
     if move_cooldown <= 0:
         if keys[pygame.K_w]:
@@ -171,7 +175,7 @@ while running:
             if not check_collision(new_x, new_z):
                 player_pos[0] = new_x
                 player_pos[2] = new_z
-            move_cooldown = 10  # Cooldown frames
+            move_cooldown = 10
         elif keys[pygame.K_s]:
             direction_x = math.cos(math.radians(player_angle_x))
             direction_z = math.sin(math.radians(player_angle_x))
@@ -181,16 +185,20 @@ while running:
                 player_pos[0] = new_x
                 player_pos[2] = new_z
             move_cooldown = 10
-        elif keys[pygame.K_a]:
-            player_angle_x += turn_angle  # Turn left
-            move_cooldown = 10
-        elif keys[pygame.K_d]:
-            player_angle_x -= turn_angle  # Turn right
-            move_cooldown = 10
 
     # Decrease cooldown
     if move_cooldown > 0:
         move_cooldown -= 1
+
+    # Timer logic
+    current_time = pygame.time.get_ticks() / 1000  # Time in seconds
+    elapsed_time = current_time - start_time
+    time_remaining = max(0, time_limit - elapsed_time)
+    print(f"Time remaining: {time_remaining:.1f} seconds")  # Debug output
+
+    if time_remaining <= 0:
+        print("Game Over - Time's up!")
+        running = False
 
     # Clear screen and set up camera
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
@@ -210,7 +218,7 @@ while running:
 
     # Check if player reached the goal
     if abs(player_pos[0] - goal[0]) < 0.5 and abs(player_pos[2] - goal[2]) < 0.5:
-        print("You reached the center!")
+        print("You reached the center - You win!")
         running = False
 
     pygame.display.flip()
