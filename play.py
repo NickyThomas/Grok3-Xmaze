@@ -48,7 +48,7 @@ floor_texture = None
 # Load textures from /assets/
 def load_textures():
     global wall_texture, floor_texture
-    wall_path = os.path.join("assets", "brick_texture.jpg")
+    wall_path = os.path.join("assets", "brick_texture.jpeg")
     if not os.path.exists(wall_path):
         print(f"Error: {wall_path} not found!")
         return
@@ -60,7 +60,7 @@ def load_textures():
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
 
-    floor_path = os.path.join("assets", "floor_texture.jpg")
+    floor_path = os.path.join("assets", "floor_texture.jpeg")
     if not os.path.exists(floor_path):
         print(f"Error: {floor_path} not found!")
         return
