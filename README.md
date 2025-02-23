@@ -44,3 +44,31 @@ Clone this repository to your local machine:
 ```bash
 git clone https://github.com/NickyThomas/Grok3-Xmaze.git
 cd Grok3-Xmaze
+
+
+### 2. Set Up a Virtual Environment (Optional but Recommended)
+Windows
+python -m venv venv
+venv\Scripts\activate
+
+macOS/Linux
+python3 -m venv venv
+source venv/bin/activate
+
+
+### 3. Install Dependencies
+Install the required Python libraries:
+* pip install pygame PyOpenGL PyOpenGL_accelerate
+
+### 4. Prepare Texture Files
+Place the texture files in an assets folder within the project directory:
+
+* Create a folder named assets if it doesn’t exist
+** mkdir assets
+
+Copy the following files into assets/:
+
+* brick_texture.jpeg
+* floor_texture.jpeg
+* clouds.png
+* Alternatively, provide your own textures with the same names or modify the code to use different filenames.
