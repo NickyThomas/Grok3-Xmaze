@@ -107,18 +107,34 @@ def load_textures():
 
 # Check collision with AABB
 def check_collision(x, z):
-    grid_x = int(math.floor(x))
-    grid_z = int(math.floor(z))
-    if grid_x < 0 or grid_x >= len(maze[0]) or grid_z < 0 or grid_z >= len(maze):
-        return True
-    if maze[grid_z][grid_x] == 1:
-        return True
+    # Calculate the grid cells the player overlaps including radius
+    min_x = int(math.floor(x - player_radius))
+    max_x = int(math.ceil(x + player_radius))
+    min_z = int(math.floor(z - player_radius))
+    max_z = int(math.ceil(z + player_radius))
+    
+    # Ensure the check stays within maze bounds
+    for grid_z in range(max(0, min_z), min(len(maze), max_z)):
+        for grid_x in range(max(0, min_x), min(len(maze[0]), max_x)):
+            if maze[grid_z][grid_x] == 1:
+                # Check intersection with wall cell bounds
+                wall_left = grid_x
+                wall_right = grid_x + 1
+                wall_bottom = grid_z
+                wall_top = grid_z + 1
+                player_left = x - player_radius
+                player_right = x + player_radius
+                player_bottom = z - player_radius
+                player_top = z + player_radius
+                if (player_right > wall_left and player_left < wall_right and
+                    player_top > wall_bottom and player_bottom < wall_top):
+                    return True
     return False
 
 # Draw a wall cube
 def draw_wall(x, y, z, height=2):
     glPushMatrix()
-    glTranslatef(x, y + height / 2, z)
+    glTranslatef(x + 0.5, y + height / 2, z + 0.5)  # Center the wall in the grid cell
     glScalef(1, height, 1)
     glBindTexture(GL_TEXTURE_2D, wall_texture)
     glColor3f(1, 1, 1)
@@ -338,10 +354,20 @@ while running:
     # Apply movement with collision
     new_x = player_pos[0] + dx
     new_z = player_pos[2] + dz
+    temp_x = player_pos[0]
+    temp_z = player_pos[2]
+    
+    # Check x movement
     if not check_collision(new_x, player_pos[2]):
-        player_pos[0] = new_x
+        temp_x = new_x
+    
+    # Check z movement
     if not check_collision(player_pos[0], new_z):
-        player_pos[2] = new_z
+        temp_z = new_z
+    
+    # Update position
+    player_pos[0] = temp_x
+    player_pos[2] = temp_z
 
     # Gravity and jumping
     player_y_velocity -= gravity
