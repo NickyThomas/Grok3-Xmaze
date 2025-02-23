@@ -29,6 +29,12 @@ jump_strength = 0.08  # Jump height
 ground_level = 0.5  # Ground height
 player_radius = 0.4  # Player collision radius
 
+# Laser variables
+laser_active = False
+laser_start_time = 0
+laser_duration = 0.2  # Seconds
+burn_marks = []  # List to store burn mark positions (x, y, z, is_floor)
+
 # Define a 20x20 maze (1 = wall, 0 = path)
 maze = [
     [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
@@ -63,6 +69,8 @@ font = pygame.font.SysFont("Arial", 36)
 wall_texture = None
 floor_texture = None
 cloud_texture = None
+laser_blaster_texture = None
+burn_mark_texture = None
 
 # Cloud scrolling
 cloud_offset = 0.0
@@ -74,7 +82,7 @@ minimap_scale = minimap_size / len(maze)
 
 # Load textures
 def load_textures():
-    global wall_texture, floor_texture, cloud_texture
+    global wall_texture, floor_texture, cloud_texture, laser_blaster_texture, burn_mark_texture
     wall_path = os.path.join("assets", "brick_texture.jpeg")
     if os.path.exists(wall_path):
         wall_image = pygame.image.load(wall_path).convert()
@@ -104,20 +112,39 @@ def load_textures():
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
+    blaster_path = os.path.join("assets", "laser_blaster.png")
+    if os.path.exists(blaster_path):
+        blaster_image = pygame.image.load(blaster_path).convert_alpha()
+        blaster_data = pygame.image.tostring(blaster_image, "RGBA", 1)
+        laser_blaster_texture = glGenTextures(1)
+        glBindTexture(GL_TEXTURE_2D, laser_blaster_texture)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, blaster_image.get_width(), blaster_image.get_height(), 0, GL_RGBA, GL_UNSIGNED_BYTE, blaster_data)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+    else:
+        print("Warning: laser_blaster.png not found in assets folder")
+    burn_mark_path = os.path.join("assets", "burn_mark.png")
+    if os.path.exists(burn_mark_path):
+        burn_mark_image = pygame.image.load(burn_mark_path).convert_alpha()
+        burn_mark_data = pygame.image.tostring(burn_mark_image, "RGBA", 1)
+        burn_mark_texture = glGenTextures(1)
+        glBindTexture(GL_TEXTURE_2D, burn_mark_texture)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, burn_mark_image.get_width(), burn_mark_image.get_height(), 0, GL_RGBA, GL_UNSIGNED_BYTE, burn_mark_data)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+    else:
+        print("Warning: burn_mark.png not found in assets folder")
 
 # Check collision with AABB
 def check_collision(x, z):
-    # Calculate the grid cells the player overlaps including radius
     min_x = int(math.floor(x - player_radius))
     max_x = int(math.ceil(x + player_radius))
     min_z = int(math.floor(z - player_radius))
     max_z = int(math.ceil(z + player_radius))
     
-    # Ensure the check stays within maze bounds
     for grid_z in range(max(0, min_z), min(len(maze), max_z)):
         for grid_x in range(max(0, min_x), min(len(maze[0]), max_x)):
             if maze[grid_z][grid_x] == 1:
-                # Check intersection with wall cell bounds
                 wall_left = grid_x
                 wall_right = grid_x + 1
                 wall_bottom = grid_z
@@ -134,7 +161,7 @@ def check_collision(x, z):
 # Draw a wall cube
 def draw_wall(x, y, z, height=2):
     glPushMatrix()
-    glTranslatef(x + 0.5, y + height / 2, z + 0.5)  # Center the wall in the grid cell
+    glTranslatef(x + 0.5, y + height / 2, z + 0.5)
     glScalef(1, height, 1)
     glBindTexture(GL_TEXTURE_2D, wall_texture)
     glColor3f(1, 1, 1)
@@ -215,12 +242,142 @@ def draw_goal(x, y, z):
     glEnable(GL_TEXTURE_2D)
     glPopMatrix()
 
+# Raycast to find wall or floor intersection
+def raycast_laser(start_x, start_y, start_z, dir_x, dir_y, dir_z):
+    max_distance = 50  # Maximum laser length
+    step_size = 0.05  # Smaller step size for precision
+    steps = int(max_distance / step_size)
+    
+    for i in range(steps):
+        x = start_x + dir_x * i * step_size
+        y = start_y + dir_y * i * step_size
+        z = start_z + dir_z * i * step_size
+        
+        # Check for floor hit
+        if y <= ground_level:
+            print(f"Floor hit at: ({x:.2f}, {ground_level:.2f}, {z:.2f})")
+            return (x, ground_level, z, True)  # Hit floor
+        
+        # Check for wall hit
+        grid_x = int(math.floor(x))
+        grid_z = int(math.floor(z))
+        
+        if grid_x < 0 or grid_x >= len(maze[0]) or grid_z < 0 or grid_z >= len(maze):
+            print(f"Boundary hit at: ({x:.2f}, {y:.2f}, {z:.2f})")
+            return (x, y, z, False)  # Hit maze boundary
+        
+        if maze[grid_z][grid_x] == 1:
+            # Approximate hit position (slightly backtrack to wall surface)
+            hit_x = x - dir_x * step_size / 2
+            hit_y = y - dir_y * step_size / 2
+            hit_z = z - dir_z * step_size / 2
+            print(f"Wall hit at: ({hit_x:.2f}, {hit_y:.2f}, {hit_z:.2f})")
+            return (hit_x, hit_y, hit_z, False)
+    
+    end_x = start_x + dir_x * max_distance
+    end_y = start_y + dir_y * max_distance
+    end_z = start_z + dir_z * max_distance
+    print(f"Max distance reached at: ({end_x:.2f}, {end_y:.2f}, {end_z:.2f})")
+    return (end_x, end_y, end_z, False)
+
+# Draw laser and handle burn marks
+def draw_laser():
+    if not laser_active:
+        return
+    
+    print("Drawing laser!")  # Debug print
+    
+    # Calculate laser direction based on player angles
+    dir_x = -math.sin(math.radians(player_angle_x)) * math.cos(math.radians(player_angle_y))
+    dir_y = math.sin(math.radians(player_angle_y))
+    dir_z = math.cos(math.radians(player_angle_x)) * math.cos(math.radians(player_angle_y))
+    
+    # Starting point (at player position)
+    start_x = player_pos[0]
+    start_y = player_pos[1]
+    start_z = player_pos[2]
+    
+    # Find intersection point
+    hit_x, hit_y, hit_z, is_floor = raycast_laser(start_x, start_y, start_z, dir_x, dir_y, dir_z)
+    
+    # Add burn mark at hit position
+    burn_marks.append((hit_x, hit_y, hit_z, is_floor))
+    
+    # Draw the laser beam
+    glDisable(GL_DEPTH_TEST)  # Disable depth test to ensure visibility
+    glDisable(GL_TEXTURE_2D)
+    glColor3f(1, 0, 0)  # Red laser
+    glLineWidth(3)  # Thicker line for visibility
+    glBegin(GL_LINES)
+    glVertex3f(start_x, start_y, start_z)
+    glVertex3f(hit_x, hit_y, hit_z)
+    glEnd()
+    glEnable(GL_TEXTURE_2D)
+    glEnable(GL_DEPTH_TEST)  # Re-enable depth test
+    glColor3f(1, 1, 1)
+
+# Draw burn marks
+def draw_burn_marks():
+    if not burn_mark_texture or not burn_marks:
+        return
+    
+    glEnable(GL_BLEND)
+    glBindTexture(GL_TEXTURE_2D, burn_mark_texture)
+    glColor3f(1, 1, 1)
+    size = 0.5  # Size of burn mark
+    
+    for x, y, z, is_floor in burn_marks:
+        glPushMatrix()
+        glTranslatef(x, y, z)
+        if is_floor:
+            # Burn mark on floor (parallel to XZ plane)
+            glRotatef(90, 1, 0, 0)  # Rotate to lie flat on floor
+        else:
+            # Burn mark on wall (face the player)
+            glRotatef(-player_angle_x, 0, 1, 0)
+            glRotatef(-player_angle_y, 1, 0, 0)
+        glBegin(GL_QUADS)
+        glTexCoord2f(0, 0); glVertex3f(-size / 2, -size / 2, 0)
+        glTexCoord2f(1, 0); glVertex3f(size / 2, -size / 2, 0)
+        glTexCoord2f(1, 1); glVertex3f(size / 2, size / 2, 0)
+        glTexCoord2f(0, 1); glVertex3f(-size / 2, size / 2, 0)
+        glEnd()
+        glPopMatrix()
+
+# Draw laser blaster
+def draw_laser_blaster():
+    if not laser_blaster_texture:
+        return
+    glMatrixMode(GL_PROJECTION)
+    glPushMatrix()
+    glLoadIdentity()
+    glOrtho(0, display[0], display[1], 0, -1, 1)
+    glMatrixMode(GL_MODELVIEW)
+    glPushMatrix()
+    glLoadIdentity()
+    glEnable(GL_BLEND)
+    glBindTexture(GL_TEXTURE_2D, laser_blaster_texture)
+    width, height = 375, 250  # Size
+    x = 0  # Far left edge of the screen
+    y = display[1] - height  # Bottom edge of the screen
+    glBegin(GL_QUADS)
+    # Rotated 180 degrees
+    glTexCoord2f(1, 1); glVertex3f(x, y, 0)
+    glTexCoord2f(0, 1); glVertex3f(x + width, y, 0)
+    glTexCoord2f(0, 0); glVertex3f(x + width, y + height, 0)
+    glTexCoord2f(1, 0); glVertex3f(x, y + height, 0)
+    glEnd()
+    glPopMatrix()
+    glMatrixMode(GL_PROJECTION)
+    glPopMatrix()
+    glMatrixMode(GL_MODELVIEW)
+
 # Draw minimap correctly at top-left
 def draw_minimap():
     glMatrixMode(GL_PROJECTION)
     glPushMatrix()
     glLoadIdentity()
-    glOrtho(0, display[0], display[1], 0, -1, 1)  # Top-left is (0, 0), bottom-right is (display[0], display[1])
+    glOrtho(0, display[0], display[1], 0, -1, 1)
     glMatrixMode(GL_MODELVIEW)
     glPushMatrix()
     glLoadIdentity()
@@ -264,7 +421,7 @@ def draw_timer(time_remaining):
     glMatrixMode(GL_PROJECTION)
     glPushMatrix()
     glLoadIdentity()
-    glOrtho(0, display[0], display[1], 0, -1, 1)  # Correct orientation
+    glOrtho(0, display[0], display[1], 0, -1, 1)
     glMatrixMode(GL_MODELVIEW)
     glPushMatrix()
     glLoadIdentity()
@@ -315,7 +472,8 @@ load_textures()
 running = True
 clock = pygame.time.Clock()
 pygame.mouse.set_visible(False)
-pygame.event.set_grab(True)
+# Temporarily disable mouse grab to ensure clicks are detected
+# pygame.event.set_grab(True)
 
 while running:
     for event in pygame.event.get():
@@ -323,6 +481,15 @@ while running:
             running = False
         if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE and player_pos[1] <= ground_level:
             player_y_velocity = jump_strength
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:  # Left mouse button
+            print("Left mouse button clicked!")
+            laser_active = True
+            laser_start_time = pygame.time.get_ticks() / 1000
+
+    # Laser timeout
+    if laser_active and (pygame.time.get_ticks() / 1000 - laser_start_time) > laser_duration:
+        print("Laser timeout")
+        laser_active = False
 
     # Mouse rotation
     mouse_dx, mouse_dy = pygame.mouse.get_rel()
@@ -354,20 +521,10 @@ while running:
     # Apply movement with collision
     new_x = player_pos[0] + dx
     new_z = player_pos[2] + dz
-    temp_x = player_pos[0]
-    temp_z = player_pos[2]
-    
-    # Check x movement
     if not check_collision(new_x, player_pos[2]):
-        temp_x = new_x
-    
-    # Check z movement
+        player_pos[0] = new_x
     if not check_collision(player_pos[0], new_z):
-        temp_z = new_z
-    
-    # Update position
-    player_pos[0] = temp_x
-    player_pos[2] = temp_z
+        player_pos[2] = new_z
 
     # Gravity and jumping
     player_y_velocity -= gravity
@@ -401,11 +558,14 @@ while running:
             if maze[z][x] == 1:
                 draw_wall(x, 0, z)
     draw_goal(goal[0], goal[1], goal[2])
+    draw_laser()  # Render laser if active
+    draw_burn_marks()  # Render burn marks
 
     # Render 2D overlays
     draw_minimap()
     draw_timer(time_remaining)
     draw_crosshair()
+    draw_laser_blaster()  # Render blaster image
 
     pygame.display.flip()
     clock.tick(60)
